@@ -1,0 +1,110 @@
+---
+title: "Pulling Franklin County ACS Data in R"
+author: "Josh Baney"
+date: "6/3/2020"
+output:
+  html_document:
+    df_print: paged
+    theme: paper
+---
+
+### Introduction
+
+This notebook walks through the process for pulling and mapping Franklin County data from the American Community Survey using the Tidycensus Package.  This is simply a quick adaptation of the much more in depth tutorial located here:  <https://dlab-berkeley.github.io/Census-Data-in-R/Rcensus_data_maps-slides.html#1>
+
+
+### Load R Packages
+
+The following packages are needed:
+
+- [tidycensus](https://walkerke.github.io/tidycensus) & [tigris](https://github.com/walkerke/tigris)
+
+- [tidyverse](https://www.tidyverse.org/)
+   
+- [sf](https://r-spatial.github.io/sf/)
+
+```{r, echo = TRUE, message = FALSE, warning=FALSE}
+library(tidycensus)
+library(tidyverse) 
+library(tigris)
+library(sf)
+```
+<p>&nbsp;</p>
+### Install Census API Key
+
+Use the tidycensus function **census_api_key** to make tidycensus use your key when it fetches data from the census.
+In order to begin using the TidyCensus package a Census API Key must be acquired and installed on machine. Key can be aquired here: https://api.census.gov/data/key_signup.html 
+
+```{r, eval = F}
+# Install Census API Key on R Instance
+# census_api_key('Insert Key Here', install = TRUE)
+```
+<p>&nbsp;</p>
+### View all available ACS Variables\
+```{r}
+# Load All ACS Variables for 2018 (Most Recent Year) and Examine Structure
+acs2018vars <- load_variables(year=2018, dataset = 'acs5', cache = T)
+str(acs2018vars)
+```
+<p>&nbsp;</p>
+### Load ACS Variables using the get_acs function
+
+    C17002_002:  Estimated Pop. under 50% of Poverty Line
+    C17002_003: Estimated Pop. between 50% and 99% of Poverty Line
+    C17002_001: Estimated Pop., Serves as Denominator
+```{r, message = FALSE, warning = FALSE, results='hide' }
+
+fr_poor <- get_acs(geography = "tract",  
+                   variables = c('C17002_002','C17002_003'), # poverty variables
+                   year = 2018,          
+                   state="OH",
+                   summary_var = "C17002_001", # Est of num people - denom
+                   county="Franklin",
+                   geometry=T)
+
+```
+
+```{r}
+head(fr_poor)
+```
+<p>&nbsp;</p>
+### Aggregate Count and Percentage Below Poverty Line
+```{r}
+fr_poor_summed <- fr_poor %>% 
+            filter(summary_est > 0) %>% # Remove Census Tracts with No Population
+            select(GEOID, estimate, summary_est,geometry) %>%
+            group_by(GEOID) %>% 
+            summarise(count_below_pov = sum(estimate), # Aggregate Count Below Poverty Line
+            total_pop = max(summary_est)) %>% # Use Max to Avoid Duplicating Total Pop
+            mutate(pct = 100 * (count_below_pov / total_pop)) # Calculate % Below Poverty Line
+
+head(fr_poor_summed)
+```
+<p>&nbsp;</p>
+### Map Total Count Below Poverty Line 
+```{r}
+plot(fr_poor_summed['count_below_pov'], main = 'Count Below Poverty Line')
+```
+<p>&nbsp;</p>
+### Map Percent Below Poverty Line
+```{r}
+plot(fr_poor_summed['pct'], main = 'Percent Below Poverty Line')
+
+```
+<p>&nbsp;</p>
+### Create an interactive Map using TMAP Package
+
+```{r}
+library(tmap)
+tmap_mode("view") # set mode to interactive
+# Create Map Object
+poverty_map <- tm_shape(fr_poor_summed) +
+                  tm_polygons(col="pct", alpha = 0.8) 
+```
+
+```{r}
+# View Map
+poverty_map
+```
+
+OSU Students living off campus appear to be effecting poverty rates.  More info can be found here: https://www.census.gov/library/stories/2018/10/off-campus-college-students-poverty.html
